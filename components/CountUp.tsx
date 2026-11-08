@@ -1,22 +1,21 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { rp } from "@/lib/format";
 
+/** Angka yang naik dari nol saat halaman dibuka. Teks dikelola lewat state React (tidak mengubah DOM langsung). */
 export default function CountUp({ value, money = false }: { value: number; money?: boolean }) {
-  const ref = useRef<HTMLSpanElement>(null);
+  const [v, setV] = useState(value);
   useEffect(() => {
-    const el = ref.current;
-    if (!el || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) { setV(value); return; }
     const t0 = performance.now();
     let raf = 0;
     const step = (t: number) => {
       const k = Math.min(1, (t - t0) / 1000);
-      const v = value * (1 - Math.pow(1 - k, 3));
-      el.textContent = money ? rp(v) : String(Math.round(v));
+      setV(value * (1 - Math.pow(1 - k, 3)));
       if (k < 1) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [value, money]);
-  return <span ref={ref}>{money ? rp(value) : value}</span>;
+  }, [value]);
+  return <span>{money ? rp(v) : Math.round(v)}</span>;
 }

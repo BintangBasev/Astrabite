@@ -1,3 +1,4 @@
+import LoadError from "@/components/LoadError";
 import Link from "next/link";
 import FoodArt, { Thumb } from "@/components/FoodArt";
 import DailyLog from "@/components/DailyLog";
@@ -46,7 +47,7 @@ function Chart({ rows, target }: { rows: DailyRow[]; target: number }) {
   );
 }
 
-export default async function Dashboard() {
+async function DashboardInner() {
   const sb = await createClient();
   const [core, today, daily, sum] = await Promise.all([
     loadCore(sb), loadToday(sb), loadDaily(sb, 7),
@@ -182,4 +183,12 @@ export default async function Dashboard() {
       </div>
     </>
   );
+}
+
+export default async function Dashboard() {
+  try {
+    return await DashboardInner();
+  } catch (e) {
+    return <LoadError error={e} where="Mission Control" />;
+  }
 }
