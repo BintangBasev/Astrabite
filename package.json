@@ -1,0 +1,29 @@
+{
+  "name": "astrabite",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AstraBite by Astratech: sistem operasional UMKM makanan (kasir, stok, promo, layar TV, AI).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.119.0",
+    "next": "15.5.29",
+    "qrcode": "1.5.4",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "@types/qrcode": "1.5.5",
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.9",
+    "typescript": "5.9.3"
+  }
+}
