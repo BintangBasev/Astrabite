@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/supabase/server";
-import { aiErrorResponse, describeAiError, gemini, MAX_TOKENS, MODEL, PERSONA } from "@/lib/ai";
+import { aiErrorResponse, describeAiError, gemini, MAX_TOKENS, MODEL, PERSONA, SEARCH_TOOLS } from "@/lib/ai";
 import { buildSnapshot } from "@/lib/snapshot";
 
 export const maxDuration = 60;
@@ -37,14 +37,20 @@ export async function POST(req: Request) {
   }));
 
   try {
-    const stream = await gemini().interactions.create({
+    const req = {
       model: MODEL,
       system_instruction: system,
       input,
-      tools: [{ type: "google_search" }],
-      generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "low" },
-      stream: true,
-    });
+      generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "low" as const },
+      stream: true as const,
+    };
+    // Coba dengan Google Search; kalau ditolak (400) atau kuota search habis (429), ulang tanpa search.
+    const stream = SEARCH_TOOLS.length
+      ? await gemini().interactions.create({ ...req, tools: SEARCH_TOOLS }).catch((e: { status?: number }) => {
+          if (e?.status === 400 || e?.status === 429) return gemini().interactions.create(req);
+          throw e;
+        })
+      : await gemini().interactions.create(req);
     const enc = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
