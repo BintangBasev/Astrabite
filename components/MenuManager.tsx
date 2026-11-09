@@ -62,7 +62,7 @@ export default function MenuManager({ menus, ings, recipes }: { menus: Menu[]; i
     const sb = createClient();
     const blob = await kecilkan(file);
     const path = `${m.id}/${Date.now()}.jpg`;
-    const up = await sb.storage.from("menu").upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    const up = await sb.storage.from("menu").upload(path, blob, { contentType: "image/jpeg" });
     if (up.error) { toast(up.error.message); return; }
     const url = sb.storage.from("menu").getPublicUrl(path).data.publicUrl;
     const { error } = await sb.from("menus").update({ foto_url: url }).eq("id", m.id);

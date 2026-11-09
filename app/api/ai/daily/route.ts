@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
-import { anthropic, aiErrorResponse, FALLBACK, MODEL, PERSONA } from "@/lib/ai";
+import { aiErrorResponse, describeAiError, gemini, MAX_TOKENS, MODEL, outputText, PERSONA } from "@/lib/ai";
 import { buildSnapshot } from "@/lib/snapshot";
 import { hariIniWib } from "@/lib/format";
 
@@ -12,23 +12,22 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: "Harus login dulu" }, { status: 401 });
   try {
     const snapshot = await buildSnapshot(supabase);
-    const res = await anthropic().beta.messages.create({
+    const it = await gemini().interactions.create({
       model: MODEL,
-      max_tokens: 4000,
-      ...FALLBACK,
-      output_config: { effort: "low" },
-      system:
+      system_instruction:
         PERSONA +
         " Tulis Daily Log: tepat 4 poin pendek (masing-masing 1 kalimat, diawali '- '), isinya: menu terlaris, omzet vs kemarin/target, " +
         "bahan yang perlu dibeli, dan satu saran konkret buat besok. Tanpa judul, tanpa pembuka.",
-      messages: [{ role: "user", content: "DATA TOKO (JSON):\n" + JSON.stringify(snapshot) }],
+      input: "DATA TOKO (JSON):\n" + JSON.stringify(snapshot),
+      generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "low" },
     });
-    if (res.stop_reason === "refusal") return NextResponse.json({ error: "Astro nggak bisa bikin ringkasan sekarang." }, { status: 422 });
-    const isi = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim();
-    const tanggal = hariIniWib();
-    await supabase.from("ai_summaries").upsert({ tanggal, isi, created_at: new Date().toISOString() });
+    const isi = outputText(it);
+    if (!isi) return NextResponse.json({ error: "Astro nggak bisa bikin ringkasan sekarang." }, { status: 422 });
+    await supabase.from("ai_summaries").upsert({ tanggal: hariIniWib(), isi, created_at: new Date().toISOString() });
     return NextResponse.json({ isi });
   } catch (e) {
-    return aiErrorResponse(e);
+    console.error("[ai] gagal memanggil Gemini", e);
+    const r = aiErrorResponse(e);
+    return NextResponse.json({ error: describeAiError(e) }, { status: r.status });
   }
 }

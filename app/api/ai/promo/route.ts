@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { requireUser } from "@/lib/supabase/server";
-import { anthropic, aiErrorResponse, FALLBACK, MODEL, PERSONA } from "@/lib/ai";
+import { aiErrorResponse, describeAiError, gemini, jsonFormat, MAX_TOKENS, MODEL, outputText, parseJson, PERSONA } from "@/lib/ai";
 import { loadCore, loadPeakHour } from "@/lib/data";
 import { hpp } from "@/lib/menu-math";
 import { rp } from "@/lib/format";
@@ -71,25 +70,32 @@ export async function POST(req: Request) {
   ].join("\n");
 
   try {
-    const res = await anthropic().beta.messages.parse({
+    const system =
+      PERSONA +
+      " Sekarang tugasmu jadi copywriter sosmed. Tulis dalam Bahasa Indonesia yang natural. " +
+      "Boleh pakai Google Search buat cek tren, sound, atau hashtag kuliner yang lagi rame di Indonesia minggu ini. " +
+      "hooks: tepat 3 kalimat pembuka yang bikin orang berhenti scroll (maks 90 karakter). " +
+      "caption: isi caption lengkap TANPA hook dan TANPA hashtag: deskripsi rasa yang menggugah, info harga/kode promo, lalu ajakan order sesuai platform. " +
+      "hashtags: 5-8 hashtag relevan berawalan #, kosongkan untuk WhatsApp. " +
+      "script: untuk video isi 4 adegan (0-3 dtk, 3-7 dtk, 7-11 dtk, 11-15 dtk) dengan visual dan audio/teks layar; untuk platform non-video kosongkan. " +
+      "Jangan mengarang testimoni dengan nama orang; jangan menjanjikan hal yang tidak ada di brief. Jawab hanya JSON sesuai skema.";
+    const base = {
       model: MODEL,
-      max_tokens: 16000,
-      ...FALLBACK,
-      output_config: { effort: "medium", format: betaZodOutputFormat(Konten) },
-      system:
-        PERSONA +
-        " Sekarang tugasmu jadi copywriter sosmed. Tulis dalam Bahasa Indonesia yang natural. " +
-        "hooks: tepat 3 kalimat pembuka yang bikin orang berhenti scroll (maks 90 karakter). " +
-        "caption: isi caption lengkap TANPA hook dan TANPA hashtag: deskripsi rasa yang menggugah, info harga/kode promo, lalu ajakan order sesuai platform. " +
-        "hashtags: 5-8 hashtag relevan berawalan #, kosongkan untuk WhatsApp. " +
-        "script: untuk video isi 4 adegan (0-3 dtk, 3-7 dtk, 7-11 dtk, 11-15 dtk) dengan visual dan audio/teks layar; untuk platform non-video kosongkan. " +
-        "Jangan mengarang testimoni dengan nama orang; jangan menjanjikan hal yang tidak ada di brief.",
-      messages: [{ role: "user", content: brief }],
-    });
-    if (res.stop_reason === "refusal" || !res.parsed_output) {
-      return NextResponse.json({ error: "Astro nggak bisa bikin konten ini. Coba ganti pilihan." }, { status: 422 });
+      system_instruction: system,
+      input: brief,
+      response_format: jsonFormat(Konten),
+      generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "medium" },
+    };
+    // Google Search dipakai kalau tersedia; kalau kombinasi dengan output JSON ditolak, ulang tanpa search.
+    const it = await gemini().interactions.create({ ...base, tools: [{ type: "google_search" }] })
+      .catch((e: { status?: number }) => {
+        if (e?.status === 400) return gemini().interactions.create(base);
+        throw e;
+      });
+    const out = parseJson(Konten, outputText(it));
+    if (!out) {
+      return NextResponse.json({ error: "Astro nggak bisa bikin konten ini. Coba lagi atau ganti pilihan." }, { status: 422 });
     }
-    const out = res.parsed_output;
     return NextResponse.json({
       ...out,
       script: video ? out.script : [],
@@ -103,6 +109,8 @@ export async function POST(req: Request) {
       jam_ramai: peak,
     });
   } catch (e) {
-    return aiErrorResponse(e);
+    console.error("[ai] gagal memanggil Gemini", e);
+    const r = aiErrorResponse(e);
+    return NextResponse.json({ error: describeAiError(e) }, { status: r.status });
   }
 }
