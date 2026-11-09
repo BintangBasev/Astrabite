@@ -2,7 +2,7 @@
 
 Sistem operasional UMKM makanan berbasis web: kasir, stok bahan, menu & HPP, pengeluaran, Promo Studio, layar TV toko, dan asisten AI **Astro**. Tampilannya adaptif: sidebar di desktop, menu bawah di HP.
 
-**Stack:** Next.js 15 (App Router) · Supabase (Postgres, Auth, Storage) · Claude API · Vercel · GitHub
+**Stack:** Next.js 15 (App Router) · Supabase (Postgres, Auth, Storage) · Gemini API · Vercel · GitHub
 
 ## Fitur
 
@@ -22,7 +22,7 @@ Sistem operasional UMKM makanan berbasis web: kasir, stok bahan, menu & HPP, pen
 ```
 app/
   (app)/            halaman yang butuh login (dashboard, kasir, stok, menu, promo, tv, cuan, astro)
-  api/ai/           route handler Claude: scan-nota, promo, chat (streaming), daily
+  api/ai/           route handler Gemini: scan-nota, promo, chat (streaming), daily
   api/tv/[token]/   feed publik buat layar TV
   tv/[token]/       halaman layar TV (tanpa login)
   login/
@@ -38,7 +38,7 @@ supabase/
 ### 1. Supabase
 
 1. Bikin project di [supabase.com](https://supabase.com). Pilih region **Southeast Asia (Singapore)**.
-2. Buka **SQL Editor**, jalankan isi `supabase/migrations/20261108000000_init.sql`.
+2. Buka **SQL Editor**, jalankan isi `supabase/migrations/20261108000000_init.sql`, lalu `supabase/migrations/20261108010000_storage_read.sql`.
 3. (Opsional) Jalankan `supabase/seed.sql` buat data contoh. Lewati kalau mau langsung isi menu asli.
 4. **Authentication → Providers → Email**: biarkan aktif. Buat akun owner lewat halaman `/login` → *Daftar*, atau dari **Authentication → Users → Add user**.
 5. Setelah semua akun staf dibuat, matikan pendaftaran publik: **Authentication → Sign In / Providers → Allow new users to sign up** = off.
@@ -46,9 +46,16 @@ supabase/
 
 > Pakai Supabase CLI? `supabase link --project-ref <ref>` lalu `supabase db push`.
 
-### 2. Claude API
+### 2. Gemini API
 
-Bikin API key di [console.anthropic.com](https://console.anthropic.com). Semua fitur AI memakai model `claude-opus-5-5` dengan fallback otomatis di sisi server (lihat `lib/ai.ts`).
+Bikin API key di [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Semua fitur AI memakai model `gemini-3.8-flash` lewat Interactions API (`@google/genai`), lihat `lib/ai.ts`:
+
+| Fitur | Thinking | Google Search | Output |
+| --- | --- | --- | --- |
+| Scan nota | medium | tidak | JSON terstruktur |
+| Promo Studio | medium | ya (tren & hashtag) | JSON terstruktur |
+| Chat Astro | low | ya (info luar toko) | teks streaming |
+| Daily Log | low | tidak | teks |
 
 ### 3. Jalankan lokal
 
@@ -62,7 +69,7 @@ npm run dev
 
 1. Push repo ini ke GitHub.
 2. Di [vercel.com/new](https://vercel.com/new), import repo-nya. Framework otomatis terdeteksi sebagai Next.js.
-3. Isi **Environment Variables**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ANTHROPIC_API_KEY`.
+3. Isi **Environment Variables**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `GEMINI_API_KEY`.
 4. Deploy. Setiap push ke `main` otomatis deploy ulang.
 5. Di Supabase **Authentication → URL Configuration**, isi **Site URL** dengan domain Vercel lo.
 
@@ -82,7 +89,7 @@ Buka domain Vercel di browser, lalu:
 ## Catatan keamanan
 
 - Model akses MVP: **satu toko**. Semua user yang login dianggap staf dan boleh baca-tulis semua data (RLS `staff_all`). Kalau nanti butuh peran owner vs kasir atau multi-cabang, policy RLS perlu dipersempit.
-- `ANTHROPIC_API_KEY` hanya dipakai di server, tidak pernah dikirim ke browser.
+- `GEMINI_API_KEY` hanya dipakai di server, tidak pernah dikirim ke browser.
 - Layar TV publik hanya bisa membaca lewat fungsi `tv_feed(token)`: menu aktif, promo, terlaris hari ini, dan nomor antrian. Data omzet, target, dan pengeluaran tidak ikut.
 - Foto nota disimpan di bucket privat `nota`; foto menu di bucket publik `menu`.
 
