@@ -136,7 +136,7 @@ async function DashboardInner() {
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,300px),1fr))", marginTop: 18 }}>
         <div className="card">
-          <h2 style={{ marginBottom: 8 }}>Top menu</h2>
+          <h2 style={{ marginBottom: 8 }}>Top UMKM</h2>
           <div className="list">
             {today.top.slice(0, 5).map(([id, q], i) => {
               const m = menu(id);
