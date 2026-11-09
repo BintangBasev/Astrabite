@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { requireUser } from "@/lib/supabase/server";
-import { anthropic, aiErrorResponse, FALLBACK, MODEL } from "@/lib/ai";
+import { aiErrorResponse, describeAiError, gemini, jsonFormat, MAX_TOKENS, MODEL, outputText, parseJson } from "@/lib/ai";
 
 export const maxDuration = 60;
 
 const NotaSchema = z.object({
   toko: z.string().nullable(),
-  total: z.number().int(),
+  total: z.number(),
   items: z.array(
     z.object({
       teks: z.string(),
-      harga: z.number().int(),
+      harga: z.number(),
       ingredient_id: z.string().nullable(),
       qty_stok: z.number().nullable(),
     }),
@@ -42,39 +41,37 @@ export async function POST(req: Request) {
   const daftar = (ings ?? []).map((i) => `- id=${i.id} | ${i.nama} | satuan stok: ${i.satuan}`).join("\n");
 
   try {
-    const res = await anthropic().beta.messages.parse({
+    const it = await gemini().interactions.create({
       model: MODEL,
-      max_tokens: 16000,
-      ...FALLBACK,
-      output_config: { effort: "medium", format: betaZodOutputFormat(NotaSchema) },
-      system:
+      system_instruction:
         "Kamu membaca foto nota belanja bahan baku milik UMKM makanan di Indonesia. " +
         "Ambil setiap baris barang beserta harganya (dalam Rupiah, bilangan bulat tanpa titik). " +
         "Cocokkan tiap barang ke daftar bahan toko kalau jelas sama (pakai id-nya), dan ubah jumlahnya ke satuan stok bahan itu " +
         "(contoh: telur 1 kg kira-kira 16 butir, cabai 1/2 kg = 500 gr, susu 1L x2 = 2000 ml). " +
         "Kalau barangnya tidak ada di daftar atau jumlahnya tidak terbaca, isi ingredient_id dan qty_stok dengan null. " +
-        "total = total yang tertulis di nota, atau jumlah semua harga kalau tidak tertulis.",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: file.type as Tipe, data: bytes.toString("base64") } },
-            { type: "text", text: `Daftar bahan toko:\n${daftar}\n\nBaca nota ini.` },
-          ],
-        },
+        "total = total yang tertulis di nota, atau jumlah semua harga kalau tidak tertulis. Jawab hanya JSON sesuai skema.",
+      input: [
+        { type: "image", data: bytes.toString("base64"), mime_type: file.type },
+        { type: "text", text: `Daftar bahan toko:\n${daftar}\n\nBaca nota ini.` },
       ],
+      response_format: jsonFormat(NotaSchema),
+      generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "medium" },
     });
 
-    if (res.stop_reason === "refusal" || !res.parsed_output) {
+    const out = parseJson(NotaSchema, outputText(it));
+    if (!out) {
       return NextResponse.json({ error: "Astro nggak bisa baca nota ini. Coba foto ulang yang lebih jelas." }, { status: 422 });
     }
     const valid = new Set((ings ?? []).map((i) => i.id));
-    const out = res.parsed_output;
-    out.items = out.items.map((it) =>
-      it.ingredient_id && valid.has(it.ingredient_id) ? it : { ...it, ingredient_id: null, qty_stok: null },
-    );
+    out.total = Math.round(out.total);
+    out.items = out.items.map((it) => {
+      const harga = Math.round(it.harga);
+      return it.ingredient_id && valid.has(it.ingredient_id) ? { ...it, harga } : { ...it, harga, ingredient_id: null, qty_stok: null };
+    });
     return NextResponse.json({ ...out, nota_path: path });
   } catch (e) {
-    return aiErrorResponse(e);
+    console.error("[ai] gagal memanggil Gemini", e);
+    const r = aiErrorResponse(e);
+    return NextResponse.json({ error: describeAiError(e) }, { status: r.status });
   }
 }
