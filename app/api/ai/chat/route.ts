@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
 import { requireUser } from "@/lib/supabase/server";
-import { anthropic, aiErrorResponse, FALLBACK, MODEL, PERSONA } from "@/lib/ai";
+import { aiErrorResponse, describeAiError, gemini, MAX_TOKENS, MODEL, PERSONA } from "@/lib/ai";
 import { buildSnapshot } from "@/lib/snapshot";
 
 export const maxDuration = 60;
@@ -24,47 +23,54 @@ export async function POST(req: Request) {
     return aiErrorResponse(e);
   }
 
-  const messages: Anthropic.Beta.BetaMessageParam[] = parsed.data.messages.map((m) => ({ role: m.role, content: m.content }));
   const system =
     PERSONA +
-    " Jawab pertanyaan pemilik toko soal penjualan, stok, menu, promo, dan pengeluaran. " +
+    " Jawab pertanyaan pemilik toko soal penjualan, stok, menu, promo, dan pengeluaran dari DATA TOKO di bawah. " +
+    "Google Search hanya untuk info luar toko (tren kuliner, harga bahan di pasar, ide promo); angka toko tetap dari data. " +
     "Jawaban singkat (maks ~120 kata), pakai poin kalau perlu, dan kasih saran yang bisa langsung dijalankan. " +
     "Format teks biasa: boleh pakai baris baru dan tanda '-' untuk poin, jangan pakai tabel atau heading markdown.\n\n" +
     "DATA TOKO TERKINI (JSON):\n" + JSON.stringify(snapshot);
 
+  const input = parsed.data.messages.map((m) => ({
+    type: m.role === "user" ? ("user_input" as const) : ("model_output" as const),
+    content: [{ type: "text" as const, text: m.content }],
+  }));
+
   try {
-    const stream = anthropic().beta.messages.stream({
+    const stream = await gemini().interactions.create({
       model: MODEL,
-      max_tokens: 4000,
-      ...FALLBACK,
-      output_config: { effort: "low" },
-      system,
-      messages,
+      system_instruction: system,
+      input,
+      tools: [{ type: "google_search" }],
+      generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "low" },
+      stream: true,
     });
     const enc = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
+        let ada = false;
         try {
           for await (const ev of stream) {
-            if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+            if (ev.event_type === "step.delta" && ev.delta.type === "text") {
+              ada = true;
               controller.enqueue(enc.encode(ev.delta.text));
+            } else if (ev.event_type === "error") {
+              console.error("[chat] stream error event", ev.error);
+              controller.enqueue(enc.encode(`\n\n⚠️ Astro error: ${ev.error?.message ?? "tidak diketahui"}`));
             }
           }
-          const final = await stream.finalMessage();
-          if (final.stop_reason === "refusal") controller.enqueue(enc.encode("\n\nMaaf, yang ini gue nggak bisa bantu."));
-          if (final.stop_reason === "max_tokens") controller.enqueue(enc.encode("…"));
-        } catch {
-          controller.enqueue(enc.encode("\n\n[Astro lagi error, coba tanya lagi ya]"));
+          if (!ada) controller.enqueue(enc.encode("Hmm, Astro belum nemu jawabannya. Coba tanya dengan kalimat lain ya."));
+        } catch (e) {
+          console.error("[chat] stream gagal", e);
+          controller.enqueue(enc.encode(`\n\n⚠️ Astro error: ${describeAiError(e)}`));
         } finally {
           controller.close();
         }
       },
-      cancel() {
-        stream.abort();
-      },
     });
     return new Response(body, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
   } catch (e) {
-    return aiErrorResponse(e);
+    console.error("[chat] gagal memanggil Gemini", e);
+    return NextResponse.json({ error: describeAiError(e) }, { status: 502 });
   }
 }
