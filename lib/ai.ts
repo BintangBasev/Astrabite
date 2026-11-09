@@ -2,8 +2,12 @@ import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-/** Model Gemini yang dipakai semua fitur AI. */
-export const MODEL = "gemini-3.8-flash";
+/** Model Gemini. Bisa diganti tanpa ubah kode lewat env GEMINI_MODEL (contoh: gemini-2.5-flash). */
+export const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-3.8-flash";
+
+/** Google Search (grounding). Matikan dengan env GEMINI_SEARCH=off kalau kuota/paket tidak mendukung. */
+export const SEARCH_TOOLS: { type: "google_search" }[] =
+  process.env.GEMINI_SEARCH?.trim().toLowerCase() === "off" ? [] : [{ type: "google_search" }];
 export const MAX_TOKENS = 65536;
 
 let _client: GoogleGenAI | null = null;
@@ -55,7 +59,8 @@ export function describeAiError(e: unknown): string {
   const msg = (err.error?.message ?? err.message ?? String(e)).slice(0, 300);
   if (status === 401 || status === 403) return `GEMINI_API_KEY salah atau tidak punya akses (${status}). ${msg}`;
   if (status === 404) return `Model ${MODEL} tidak ditemukan untuk key ini (404). ${msg}`;
-  if (status === 429) return `Kuota Gemini habis atau terlalu banyak permintaan (429). ${msg}`;
+  if (status === 429)
+    return `Kuota Gemini untuk model ${MODEL} habis atau belum tersedia di key ini (429). Cek ai.dev/rate-limit, aktifkan billing, atau set GEMINI_MODEL ke model lain dan GEMINI_SEARCH=off di Vercel.`;
   return status ? `Gemini error ${status}: ${msg}` : msg;
 }
 
