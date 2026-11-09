@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/supabase/server";
-import { aiErrorResponse, describeAiError, gemini, jsonFormat, MAX_TOKENS, MODEL, outputText, parseJson, PERSONA } from "@/lib/ai";
+import { aiErrorResponse, describeAiError, gemini, jsonFormat, MAX_TOKENS, MODEL, outputText, parseJson, PERSONA, SEARCH_TOOLS } from "@/lib/ai";
 import { loadCore, loadPeakHour } from "@/lib/data";
 import { hpp } from "@/lib/menu-math";
 import { rp } from "@/lib/format";
@@ -87,11 +87,13 @@ export async function POST(req: Request) {
       generation_config: { max_output_tokens: MAX_TOKENS, thinking_level: "medium" },
     };
     // Google Search dipakai kalau tersedia; kalau kombinasi dengan output JSON ditolak, ulang tanpa search.
-    const it = await gemini().interactions.create({ ...base, tools: [{ type: "google_search" }] })
-      .catch((e: { status?: number }) => {
-        if (e?.status === 400) return gemini().interactions.create(base);
-        throw e;
-      });
+    const it = SEARCH_TOOLS.length
+      ? await gemini().interactions.create({ ...base, tools: SEARCH_TOOLS }).catch((e: { status?: number }) => {
+          // Kombinasi search + JSON ditolak (400) atau kuota search habis (429): ulang tanpa search.
+          if (e?.status === 400 || e?.status === 429) return gemini().interactions.create(base);
+          throw e;
+        })
+      : await gemini().interactions.create(base);
     const out = parseJson(Konten, outputText(it));
     if (!out) {
       return NextResponse.json({ error: "Astro nggak bisa bikin konten ini. Coba lagi atau ganti pilihan." }, { status: 422 });
